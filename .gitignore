@@ -1,0 +1,36 @@
+# Build artifacts
+target/
+*.o
+*.a
+*.so
+*.dylib
+result
+result-*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+.venv/
+venv/
+
+# Rust / Cargo
+Cargo.lock.bak
+**/*.rs.bk
+
+# System and Editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Praxis simulation state
+.praxis/
+*.tmp
