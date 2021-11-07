@@ -1,0 +1,23 @@
+[package]
+name = "praxis"
+version = "0.1.0"
+edition = "2021"
+authors = ["Aneesh <aneeshkrishnaparthasarathy@gmail.com>"]
+description = "Declarative cloud operating fabric and zero-trust infrastructure hypervisor execution engine"
+license = "MIT"
+repository = "https://github.com/Aneesh495/praxis"
+
+[lib]
+name = "praxis_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "praxis"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
