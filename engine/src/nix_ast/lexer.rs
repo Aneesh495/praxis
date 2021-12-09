@@ -34,6 +34,8 @@ pub enum Token {
     Assign,       // =
     Question,     // ?
     At,           // @
+    Dollar,       // $
+    DollarBrace,  // ${
 
     // Operators
     Update,       // //
@@ -122,6 +124,33 @@ impl<'a> Lexer<'a> {
             None => return Ok(Token::Eof),
         };
 
+        // Multiline string literals (''...'')
+        if ch == '\'' && self.peek_next() == Some('\'') {
+            self.advance(); // consume first '
+            self.advance(); // consume second '
+            let mut s = String::new();
+            while let Some(c) = self.advance() {
+                if c == '\'' && self.peek() == Some('\'') {
+                    self.advance(); // consume closing second '
+                    return Ok(Token::Str(s));
+                } else {
+                    s.push(c);
+                }
+            }
+            return Err("Unterminated multiline string literal".to_string());
+        }
+
+        // Dollar and String interpolation ${
+        if ch == '$' {
+            self.advance(); // consume '$'
+            if self.peek() == Some('{') {
+                self.advance(); // consume '{'
+                return Ok(Token::DollarBrace);
+            } else {
+                return Ok(Token::Dollar);
+            }
+        }
+
         // Identifiers and Keywords
         if ch.is_alphabetic() || ch == '_' {
             let mut ident = String::new();
@@ -192,6 +221,20 @@ impl<'a> Lexer<'a> {
                 }
             }
             return Err("Unterminated string literal".to_string());
+        }
+
+        // Path literals: ./path or ../path
+        if ch == '.' && (self.peek_next() == Some('/') || (self.peek_next() == Some('.') && self.chars.get(self.pos + 2) == Some(&'/'))) {
+            let mut path = String::new();
+            while let Some(c) = self.peek() {
+                if c.is_alphanumeric() || c == '.' || c == '/' || c == '-' || c == '_' {
+                    path.push(c);
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+            return Ok(Token::Str(path));
         }
 
         // Multi-char operators and single punctuation
@@ -297,11 +340,5 @@ impl<'a> Lexer<'a> {
             tokens.push(tok);
         }
         Ok(tokens)
-    }
-}
-
-impl Token {
-    pub fn clone_eof() -> Self {
-        Token::Eof
     }
 }

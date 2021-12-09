@@ -56,8 +56,13 @@ impl Parser {
         if self.match_token(&Token::Let) {
             let mut bindings = Vec::new();
             while !self.check(&Token::In) && !self.check(&Token::Eof) {
-                let entry = self.parse_attr_entry()?;
-                bindings.push(entry);
+                if self.match_token(&Token::Inherit) {
+                    let inherited = self.parse_inherit_entries()?;
+                    bindings.extend(inherited);
+                } else {
+                    let entry = self.parse_attr_entry()?;
+                    bindings.push(entry);
+                }
             }
             self.expect(&Token::In)?;
             let body = self.parse_expression()?;
@@ -78,6 +83,28 @@ impl Parser {
                 cond: Box::new(cond),
                 then_branch: Box::new(then_branch),
                 else_branch: Box::new(else_branch),
+            });
+        }
+
+        // with ... ; ...
+        if self.match_token(&Token::With) {
+            let env = self.parse_expression()?;
+            self.expect(&Token::Semicolon)?;
+            let body = self.parse_expression()?;
+            return Ok(Expr::With {
+                env: Box::new(env),
+                body: Box::new(body),
+            });
+        }
+
+        // assert ... ; ...
+        if self.match_token(&Token::Assert) {
+            let cond = self.parse_expression()?;
+            self.expect(&Token::Semicolon)?;
+            let body = self.parse_expression()?;
+            return Ok(Expr::Assert {
+                cond: Box::new(cond),
+                body: Box::new(body),
             });
         }
 
@@ -270,10 +297,35 @@ impl Parser {
 
         while self.match_token(&Token::Dot) {
             let mut path = Vec::new();
-            if let Token::Ident(id) = self.advance() {
-                path.push(id);
-            } else {
-                return Err("Expected identifier after '.' in attribute selection".to_string());
+            match self.peek().clone() {
+                Token::Ident(id) => {
+                    self.advance();
+                    path.push(id);
+                }
+                Token::Str(s) => {
+                    self.advance();
+                    path.push(s);
+                }
+                Token::DollarBrace => {
+                    self.advance(); // consume ${
+                    let mut inner = String::new();
+                    while !self.check(&Token::CloseBrace) && !self.check(&Token::Eof) {
+                        match self.advance() {
+                            Token::Ident(name) => inner.push_str(&name),
+                            Token::Str(s) => inner.push_str(&s),
+                            Token::Dot => inner.push('.'),
+                            other => inner.push_str(&format!("{:?}", other)),
+                        }
+                    }
+                    self.expect(&Token::CloseBrace)?;
+                    path.push(inner);
+                }
+                other => {
+                    return Err(format!(
+                        "Expected identifier after '.' in attribute selection, found {:?}",
+                        other
+                    ));
+                }
             }
 
             let mut default = None;
@@ -336,7 +388,12 @@ impl Parser {
                 self.expect(&Token::OpenBrace)?;
                 let mut entries = Vec::new();
                 while !self.check(&Token::CloseBrace) && !self.check(&Token::Eof) {
-                    entries.push(self.parse_attr_entry()?);
+                    if self.match_token(&Token::Inherit) {
+                        let inherited = self.parse_inherit_entries()?;
+                        entries.extend(inherited);
+                    } else {
+                        entries.push(self.parse_attr_entry()?);
+                    }
                 }
                 self.expect(&Token::CloseBrace)?;
                 Ok(Expr::AttrSet { is_rec, entries })
@@ -351,6 +408,19 @@ impl Parser {
             match self.advance() {
                 Token::Ident(id) => path.push(id),
                 Token::Str(s) => path.push(s),
+                Token::DollarBrace => {
+                    let mut inner = String::new();
+                    while !self.check(&Token::CloseBrace) && !self.check(&Token::Eof) {
+                        match self.advance() {
+                            Token::Ident(name) => inner.push_str(&name),
+                            Token::Str(s) => inner.push_str(&s),
+                            Token::Dot => inner.push('.'),
+                            other => inner.push_str(&format!("{:?}", other)),
+                        }
+                    }
+                    self.expect(&Token::CloseBrace)?;
+                    path.push(inner);
+                }
                 other => return Err(format!("Expected attribute key identifier, found {:?}", other)),
             }
             if !self.match_token(&Token::Dot) {
@@ -361,5 +431,37 @@ impl Parser {
         let value = self.parse_expression()?;
         self.expect(&Token::Semicolon)?;
         Ok(AttrEntry { path, value })
+    }
+
+    fn parse_inherit_entries(&mut self) -> Result<Vec<AttrEntry>, String> {
+        let from_expr = if self.match_token(&Token::OpenParen) {
+            let expr = self.parse_expression()?;
+            self.expect(&Token::CloseParen)?;
+            Some(expr)
+        } else {
+            None
+        };
+
+        let mut entries = Vec::new();
+        while !self.check(&Token::Semicolon) && !self.check(&Token::Eof) {
+            if let Token::Ident(name) = self.advance() {
+                let value = match &from_expr {
+                    Some(src) => Expr::Select {
+                        expr: Box::new(src.clone()),
+                        attr_path: vec![name.clone()],
+                        default: None,
+                    },
+                    None => Expr::Ident(name.clone()),
+                };
+                entries.push(AttrEntry {
+                    path: vec![name],
+                    value,
+                });
+            } else {
+                return Err("Expected identifier in inherit statement".to_string());
+            }
+        }
+        self.expect(&Token::Semicolon)?;
+        Ok(entries)
     }
 }
